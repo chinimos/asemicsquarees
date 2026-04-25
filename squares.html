@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ASEMIC SQUARES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cell: 10px;
+    --ink: #000;
+    --paper: #fff;
+    --faint: #eaeaea;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'VT323', 'Courier New', monospace;
+    font-size: 20px;
+    line-height: 1.4;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+    image-rendering: pixelated;
+  }
+
+  .grid-bg {
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(to right, var(--faint) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--faint) 1px, transparent 1px);
+    background-size: var(--cell) var(--cell);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #trail {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  main { position: relative; z-index: 2; }
+
+  section {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: calc(var(--cell) * 8) calc(var(--cell) * 4);
+    gap: calc(var(--cell) * 4);
+    position: relative;
+  }
+
+  .frame {
+    padding: calc(var(--cell) * 6);
+    background: var(--paper);
+    max-width: 720px;
+    width: 100%;
+  }
+
+  .pixel-word {
+    display: flex;
+    gap: calc(var(--cell) * 2);
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .letter {
+    display: grid;
+    grid-template-columns: repeat(3, var(--cell));
+    grid-template-rows: repeat(5, var(--cell));
+    gap: 0;
+  }
+  .pixel-word.big .letter {
+    grid-template-columns: repeat(3, calc(var(--cell) * 2));
+    grid-template-rows: repeat(5, calc(var(--cell) * 2));
+  }
+  .dot-on  { background: var(--ink); }
+  .dot-off { background: transparent; }
+
+  .braille-cell {
+    display: grid;
+    grid-template-columns: repeat(2, calc(var(--cell) * 4));
+    grid-template-rows: repeat(3, calc(var(--cell) * 4));
+    gap: 0;
+    border: calc(var(--cell) * 0.25) solid var(--ink);
+  }
+  .braille-cell > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--faint);
+  }
+  .dot {
+    width: calc(var(--cell) * 2.2);
+    height: calc(var(--cell) * 2.2);
+    background: var(--ink);
+    border-radius: 50%;
+    transform: scale(0);
+    transition: transform 0.35s ease;
+  }
+  .square {
+    width: calc(var(--cell) * 4);
+    height: calc(var(--cell) * 4);
+    background: var(--ink);
+    transform: scale(0);
+    transition: transform 0.35s ease;
+  }
+  .on .dot, .on .square { transform: scale(1); }
+
+  .compare {
+    display: flex;
+    gap: calc(var(--cell) * 6);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .arrow {
+    display: grid;
+    grid-template-columns: repeat(5, var(--cell));
+    grid-template-rows: repeat(3, var(--cell));
+  }
+  .arrow .on { background: var(--ink); }
+  .label {
+    text-align: center;
+    margin-top: calc(var(--cell) * 2);
+    letter-spacing: 0.15em;
+    font-size: 12px;
+  }
+
+  p, .text {
+    max-width: 44ch;
+    text-align: center;
+    margin: 0 auto;
+  }
+  .mono-small {
+    font-family: 'Silkscreen', 'VT323', monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+  }
+  .label {
+    font-family: 'Silkscreen', monospace;
+    font-size: 10px;
+  }
+
+  .enter {
+    position: relative;
+    display: inline-block;
+    width: calc(var(--cell) * 20);
+    height: calc(var(--cell) * 20);
+    background: var(--ink);
+    text-decoration: none;
+    color: var(--paper);
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.25s ease;
+  }
+  .enter:hover { background: var(--paper); outline: 1px solid var(--ink); }
+  .enter .label-inside {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+  }
+  .enter .label-inside .dot-on { background: var(--paper); }
+  .enter:hover .label-inside .dot-on { background: var(--ink); }
+
+  .cue {
+    width: calc(var(--cell) * 2);
+    height: calc(var(--cell) * 2);
+    background: var(--ink);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: translateY(0); opacity: 1; }
+    50%      { transform: translateY(var(--cell)); opacity: 0.4; }
+  }
+
+  .pager {
+    position: fixed;
+    top: calc(var(--cell) * 2);
+    right: calc(var(--cell) * 2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cell);
+    z-index: 10;
+  }
+  .pager a {
+    width: calc(var(--cell) * 2);
+    height: calc(var(--cell) * 2);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    display: block;
+    transition: background 0.2s ease;
+  }
+  .pager a.active { background: var(--ink); }
+
+  .rule {
+    display: flex;
+    gap: 0;
+  }
+  .rule div {
+    width: var(--cell);
+    height: var(--cell);
+    background: var(--ink);
+  }
+  .rule div:nth-child(even) { background: transparent; }
+
+  /* Archive — saved writings shown as folders */
+  .folders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(calc(var(--cell) * 18), 1fr));
+    gap: calc(var(--cell) * 3);
+    width: 100%;
+    max-width: 760px;
+    padding: 0 calc(var(--cell) * 2);
+  }
+  .folder {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: var(--ink);
+    font-family: 'VT323', monospace;
+    position: relative;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .folder-tab {
+    width: calc(var(--cell) * 5);
+    height: var(--cell);
+    background: var(--ink);
+    margin-left: var(--cell);
+  }
+  .folder-body {
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+    height: calc(var(--cell) * 12);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: var(--paper);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .folder:hover .folder-body { background: var(--ink); color: var(--paper); }
+  .folder-name {
+    font-size: 18px;
+    letter-spacing: 0.05em;
+    word-break: break-word;
+    line-height: 1.2;
+    overflow: hidden;
+  }
+  .folder-meta {
+    font-family: 'Silkscreen', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    opacity: 0.55;
+  }
+  .folder-delete {
+    position: absolute;
+    top: calc(var(--cell) * 1.6);
+    right: calc(var(--cell) * 0.6);
+    width: calc(var(--cell) * 1.6);
+    height: calc(var(--cell) * 1.6);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    border: none;
+    cursor: pointer;
+    font-family: 'Silkscreen', monospace;
+    font-size: 10px;
+    line-height: 1;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    color: var(--ink);
+    padding: 0;
+  }
+  .folder:hover .folder-delete { display: flex; }
+  .folder-delete:hover { background: var(--ink); color: var(--paper); }
+  .empty-msg {
+    font-family: 'Silkscreen', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    opacity: 0.4;
+    text-align: center;
+    padding: calc(var(--cell) * 4) 0;
+    grid-column: 1 / -1;
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+<canvas id="trail"></canvas>
+
+<nav class="pager" aria-label="sections">
+  <a href="#s1" data-target="s1" class="active"></a>
+  <a href="#s2" data-target="s2"></a>
+  <a href="#s3" data-target="s3"></a>
+  <a href="#s4" data-target="s4"></a>
+  <a href="#s5" data-target="s5"></a>
+</nav>
+
+<main>
+
+  <section id="s1">
+    <div class="pixel-word" data-word="ASEMIC SQUARES"></div>
+    <p class="mono-small">MADE BY MARK SPENCER SAYMO</p>
+    <p class="mono-small">A WRITING SURFACE MADE ONLY OF SQUARES.</p>
+    <div class="rule" aria-hidden="true">
+      <div></div><div></div><div></div><div></div><div></div><div></div>
+      <div></div><div></div><div></div><div></div><div></div><div></div>
+      <div></div><div></div><div></div><div></div><div></div><div></div>
+      <div></div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="cue" aria-hidden="true"></div>
+  </section>
+
+  <section id="s2">
+    <div class="pixel-word" data-word="BRAILLE"></div>
+    <div class="frame">
+      <p>Six dots. Raised on paper. Read with the fingertips.<br>
+         Braille is a script that was never meant to be seen.</p>
+      <br>
+      <p class="mono-small">HOVER THE CELL &mdash; THE DOTS APPEAR.</p>
+      <br>
+      <div style="display:flex; justify-content:center;">
+        <div class="braille-cell" id="cellDots" aria-label="braille cell">
+          <div><div class="dot"></div></div><div><div class="dot"></div></div>
+          <div><div class="dot"></div></div><div><div class="dot"></div></div>
+          <div><div class="dot"></div></div><div><div class="dot"></div></div>
+        </div>
+      </div>
+      <p class="label">LETTER B &middot; DOTS 1, 2</p>
+    </div>
+  </section>
+
+  <section id="s3">
+    <div class="pixel-word" data-word="FLAT"></div>
+    <div class="frame">
+      <p>On a screen, nothing can be raised.<br>
+         The dot loses its height. The paper loses its grain.<br>
+         What remains is position.</p>
+      <br>
+      <p class="mono-small">HOVER &mdash; DOTS FLATTEN INTO SQUARES.</p>
+      <br>
+      <div class="compare">
+        <div>
+          <div class="braille-cell" id="cellMorphA">
+            <div><div class="dot"></div></div><div><div class="dot"></div></div>
+            <div><div class="dot"></div></div><div><div class="dot"></div></div>
+            <div><div class="dot"></div></div><div><div class="dot"></div></div>
+          </div>
+          <p class="label">EMBOSSED</p>
+        </div>
+        <div class="arrow" aria-hidden="true">
+          <div></div><div></div><div></div><div></div><div></div>
+          <div></div><div class="on"></div><div class="on"></div><div class="on"></div><div class="on"></div>
+          <div></div><div></div><div></div><div></div><div></div>
+        </div>
+        <div>
+          <div class="braille-cell" id="cellMorphB">
+            <div><div class="square"></div></div><div><div class="square"></div></div>
+            <div><div class="square"></div></div><div><div class="square"></div></div>
+            <div><div class="square"></div></div><div><div class="square"></div></div>
+          </div>
+          <p class="label">FLATTENED</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s4">
+    <div class="pixel-word" data-word="ENTER"></div>
+    <p class="mono-small">TWENTY-SIX LETTERS. TWO COLUMNS. THREE ROWS.</p>
+    <a href="braille.html" class="enter" aria-label="Enter the translator">
+      <span class="label-inside">
+        <span class="pixel-word" data-word="TYPE"></span>
+      </span>
+    </a>
+    <p class="mono-small">CLICK THE SQUARE.</p>
+  </section>
+
+  <section id="s5">
+    <div class="pixel-word" data-word="ARCHIVE"></div>
+    <p class="mono-small">SAVED WRITINGS &mdash; CLICK TO OPEN</p>
+    <div class="folders" id="folders"></div>
+  </section>
+
+</main>
+
+<script>
+const FONT = {
+  'A': ['010','101','111','101','101'],
+  'B': ['110','101','110','101','110'],
+  'C': ['011','100','100','100','011'],
+  'D': ['110','101','101','101','110'],
+  'E': ['111','100','110','100','111'],
+  'F': ['111','100','110','100','100'],
+  'G': ['011','100','101','101','011'],
+  'H': ['101','101','111','101','101'],
+  'I': ['111','010','010','010','111'],
+  'J': ['001','001','001','101','010'],
+  'K': ['101','101','110','101','101'],
+  'L': ['100','100','100','100','111'],
+  'M': ['101','111','111','101','101'],
+  'N': ['101','111','111','111','101'],
+  'O': ['010','101','101','101','010'],
+  'P': ['110','101','110','100','100'],
+  'Q': ['010','101','101','111','011'],
+  'R': ['110','101','110','101','101'],
+  'S': ['011','100','010','001','110'],
+  'T': ['111','010','010','010','010'],
+  'U': ['101','101','101','101','011'],
+  'V': ['101','101','101','101','010'],
+  'W': ['101','101','111','111','101'],
+  'X': ['101','101','010','101','101'],
+  'Y': ['101','101','010','010','010'],
+  'Z': ['111','001','010','100','111'],
+  ' ': ['000','000','000','000','000']
+};
+
+function renderPixelWord(el) {
+  const word = (el.dataset.word || el.textContent || "").toUpperCase();
+  el.innerHTML = "";
+  for (const ch of word) {
+    const pattern = FONT[ch];
+    if (!pattern) continue;
+    const letter = document.createElement('div');
+    letter.className = 'letter';
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 3; c++) {
+        const cell = document.createElement('div');
+        cell.className = pattern[r][c] === '1' ? 'dot-on' : 'dot-off';
+        letter.appendChild(cell);
+      }
+    }
+    el.appendChild(letter);
+  }
+}
+
+document.querySelectorAll('.pixel-word').forEach(renderPixelWord);
+
+// Letter B: dots 1 and 2 raised.
+// DOM order of cells is row-major: [r0c0, r0c1, r1c0, r1c1, r2c0, r2c1]
+// Dot 1 = r0c0 (idx 0), Dot 2 = r1c0 (idx 2)
+const B_PATTERN = [1, 0, 1, 0, 0, 0];
+
+function wireCell(id, pattern) {
+  const cell = document.getElementById(id);
+  if (!cell) return;
+  const slots = cell.querySelectorAll(':scope > div');
+
+  function activate() { slots.forEach((s, i) => { if (pattern[i]) s.classList.add('on'); }); }
+  function deactivate() { slots.forEach(s => s.classList.remove('on')); }
+
+  cell.addEventListener('mouseenter', activate);
+  cell.addEventListener('mouseleave', deactivate);
+  cell.addEventListener('click', activate);
+
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        activate();
+        setTimeout(deactivate, 1800);
+      }
+    });
+  }, { threshold: 0.5 });
+  io.observe(cell);
+}
+
+wireCell('cellDots', B_PATTERN);
+wireCell('cellMorphA', B_PATTERN);
+wireCell('cellMorphB', B_PATTERN);
+
+// Cursor trail
+const canvas = document.getElementById('trail');
+const ctx = canvas.getContext('2d');
+const CELL = 10;
+let squares = [];
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let lastGX = -1, lastGY = -1;
+window.addEventListener('pointermove', (e) => {
+  const gx = Math.floor(e.clientX / CELL);
+  const gy = Math.floor(e.clientY / CELL);
+  if (gx !== lastGX || gy !== lastGY) {
+    squares.push({ gx, gy, life: 1 });
+    lastGX = gx; lastGY = gy;
+    if (squares.length > 140) squares.shift();
+  }
+});
+
+function animate() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const s of squares) {
+    ctx.fillStyle = `rgba(0,0,0,${s.life * 0.85})`;
+    ctx.fillRect(s.gx * CELL, s.gy * CELL, CELL, CELL);
+    s.life -= 0.018;
+  }
+  squares = squares.filter(s => s.life > 0);
+  requestAnimationFrame(animate);
+}
+animate();
+
+/* ---------- Archive folders (localStorage) ---------- */
+const SAVES_KEY = 'asemic-squares-saves';
+
+function loadSaves() {
+  try { return JSON.parse(localStorage.getItem(SAVES_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function persistSaves(s) {
+  localStorage.setItem(SAVES_KEY, JSON.stringify(s));
+}
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function renderFolders() {
+  const container = document.getElementById('folders');
+  if (!container) return;
+  const saves = loadSaves();
+  const ids = Object.keys(saves).sort((a, b) =>
+    (saves[b].date || '').localeCompare(saves[a].date || '')
+  );
+  container.innerHTML = '';
+  if (ids.length === 0) {
+    const msg = document.createElement('p');
+    msg.className = 'empty-msg';
+    msg.textContent = 'NO SAVED WRITINGS YET. PRESS CTRL + S IN THE TRANSLATOR.';
+    container.appendChild(msg);
+    return;
+  }
+  for (const id of ids) {
+    const save = saves[id];
+    const folder = document.createElement('a');
+    folder.className = 'folder';
+    folder.href = 'braille.html?load=' + encodeURIComponent(id);
+
+    const tab = document.createElement('div');
+    tab.className = 'folder-tab';
+    folder.appendChild(tab);
+
+    const body = document.createElement('div');
+    body.className = 'folder-body';
+
+    const name = document.createElement('div');
+    name.className = 'folder-name';
+    name.textContent = (save.name || 'UNTITLED').toUpperCase();
+    body.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'folder-meta';
+    meta.textContent = formatDate(save.date);
+    body.appendChild(meta);
+
+    folder.appendChild(body);
+
+    const del = document.createElement('button');
+    del.className = 'folder-delete';
+    del.textContent = '\u00D7'; // ×
+    del.title = 'Delete';
+    del.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (confirm('Delete "' + (save.name || 'this writing') + '"?')) {
+        const s = loadSaves();
+        delete s[id];
+        persistSaves(s);
+        renderFolders();
+      }
+    });
+    folder.appendChild(del);
+
+    container.appendChild(folder);
+  }
+}
+renderFolders();
+
+// Pager active state
+const sections = document.querySelectorAll('section');
+const pagerLinks = document.querySelectorAll('.pager a');
+const pagerIO = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      pagerLinks.forEach(a => a.classList.remove('active'));
+      const target = document.querySelector(`.pager a[data-target="${e.target.id}"]`);
+      if (target) target.classList.add('active');
+    }
+  });
+}, { threshold: 0.5 });
+sections.forEach(s => pagerIO.observe(s));
+</script>
+</body>
+</html>

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Braille-Style Square Translator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Silkscreen&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cell: 10px;
+    --ink: #000;
+    --paper: #fff;
+    --faint: #eaeaea;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--ink);
+    font-family: 'VT323', monospace;
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+  }
+  html { overflow-y: auto; height: auto; }
+  body { min-height: 100vh; }
+  /* Grid is painted on the body itself, so it scrolls with the canvas — */
+  /* squares stay aligned to the grid even at arbitrary scroll positions. */
+  body {
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(to right, var(--faint) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--faint) 1px, transparent 1px);
+    background-size: var(--cell) var(--cell);
+  }
+  canvas {
+    display: block;
+    /* Relative (not absolute) so the canvas takes up document flow —       */
+    /* the body grows with it, which is what gives us the scrollbar.         */
+    position: relative;
+    background: transparent;
+    outline: none;
+    z-index: 1;
+  }
+
+  .back {
+    position: fixed;
+    top: calc(var(--cell) * 2);
+    right: calc(var(--cell) * 2);
+    width: calc(var(--cell) * 2);
+    height: calc(var(--cell) * 2);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    z-index: 20;
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+  .back:hover { background: var(--ink); }
+
+  .info {
+    position: fixed;
+    padding: calc(var(--cell) * 1.2) calc(var(--cell) * 1.8);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    font-family: 'Silkscreen', monospace;
+    font-size: 10px;
+    line-height: 2;
+    letter-spacing: 0.08em;
+    z-index: 10;
+    pointer-events: none;
+    white-space: pre;
+    color: var(--ink);
+  }
+  .info.tl { top: calc(var(--cell) * 2); left: calc(var(--cell) * 2); }
+  .info.bl { bottom: calc(var(--cell) * 2); left: calc(var(--cell) * 2); }
+  .info .ttl {
+    display: block;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    margin-bottom: calc(var(--cell) * 0.6);
+    color: #888;
+  }
+
+  /* Pull-out English panel. Closed shows just the vertical handle. */
+  .tab {
+    position: fixed;
+    top: calc(var(--cell) * 6);
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: stretch;
+    transform: translateX(calc(100% - var(--cell) * 3));
+    transition: transform 0.2s ease;
+  }
+  .tab.open { transform: translateX(0); }
+
+  .tab-handle {
+    width: calc(var(--cell) * 3);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    border: none;
+    cursor: pointer;
+    font-family: 'Silkscreen', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    writing-mode: vertical-rl;
+    padding: calc(var(--cell) * 2) 0;
+    color: var(--ink);
+  }
+  .tab-handle:hover { background: var(--ink); color: var(--paper); }
+
+  .tab-body {
+    width: calc(var(--cell) * 30);
+    padding: calc(var(--cell) * 1.5);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cell);
+  }
+  .tab-label {
+    font-family: 'Silkscreen', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: var(--ink);
+  }
+  #buffer {
+    width: 100%;
+    height: calc(var(--cell) * 30);
+    padding: var(--cell);
+    background: var(--paper);
+    outline: 1px solid var(--ink);
+    outline-offset: -1px;
+    border: none;
+    font-family: 'VT323', monospace;
+    font-size: 18px;
+    line-height: 1.3;
+    resize: none;
+    color: var(--ink);
+  }
+  #buffer:focus { outline: 1px solid var(--ink); }
+  #buffer::selection { background: var(--ink); color: var(--paper); }
+
+  /* Brief confirmation toast (e.g. "SAVED") */
+  .toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: var(--cell) calc(var(--cell) * 2);
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'Silkscreen', monospace;
+    font-size: 12px;
+    letter-spacing: 0.25em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+<a href="squares.html" class="back" aria-label="Back"></a>
+
+<div class="info tl" aria-label="exit">
+<span class="ttl">EXIT</span>PRESS  ESC   GO BACK</div>
+
+<div class="info bl" aria-label="controls">
+<span class="ttl">CONTROLS</span>TYPE       LETTERS A-Z
+NEW LINE   ENTER
+DELETE     BACKSPACE
+PASTE      CTRL + V
+SAVE       CTRL + S
+CLEAR ALL  CTRL + X</div>
+
+<aside class="tab" id="tab">
+  <button class="tab-handle" id="tabHandle" aria-label="Toggle English panel">ENGLISH</button>
+  <div class="tab-body">
+    <div class="tab-label">ENGLISH &mdash; EDIT, SELECT, PASTE</div>
+    <textarea id="buffer" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Type or paste here."></textarea>
+  </div>
+</aside>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const buffer = document.getElementById("buffer");
+  const tab = document.getElementById("tab");
+  const tabHandle = document.getElementById("tabHandle");
+
+  let width = 0, height = 0;
+  let typedText = "";
+
+  const gridSize = 10;
+  const cellCols = 2;
+  const cellRows = 3;
+  // Top space reserved for the ESC / EXIT box in the top-left corner.
+  // Measured dynamically on every resize so typing always starts below it.
+  let topOffset = 10 * gridSize;
+
+  function computeTopOffset() {
+    const escBox = document.querySelector('.info.tl');
+    if (escBox) {
+      const rect = escBox.getBoundingClientRect();
+      // Bottom of the ESC box + a 1-cell gap, snapped up to the grid.
+      const bottom = rect.bottom + gridSize;
+      topOffset = Math.max(4 * gridSize, Math.ceil(bottom / gridSize) * gridSize);
+    }
+  }
+
+  const brailleMap = {
+    "a": [1,0,0,0,0,0], "b": [1,1,0,0,0,0], "c": [1,0,0,1,0,0], "d": [1,0,0,1,1,0],
+    "e": [1,0,0,0,1,0], "f": [1,1,0,1,0,0], "g": [1,1,0,1,1,0], "h": [1,1,0,0,1,0],
+    "i": [0,1,0,1,0,0], "j": [0,1,0,1,1,0], "k": [1,0,1,0,0,0], "l": [1,1,1,0,0,0],
+    "m": [1,0,1,1,0,0], "n": [1,0,1,1,1,0], "o": [1,0,1,0,1,0], "p": [1,1,1,1,0,0],
+    "q": [1,1,1,1,1,0], "r": [1,1,1,0,1,0], "s": [0,1,1,1,0,0], "t": [0,1,1,1,1,0],
+    "u": [1,0,1,0,0,1], "v": [1,1,1,0,0,1], "w": [0,1,0,1,1,1], "x": [1,0,1,1,0,1],
+    "y": [1,0,1,1,1,1], "z": [1,0,1,0,1,1]
+  };
+
+  // Keep only letters, space, and newline. Everything else is silently dropped.
+  function sanitize(t) {
+    let out = "";
+    for (const ch of t) {
+      if (ch === "\n" || ch === " " ||
+          (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")) {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  function setTyped(next) {
+    if (next.length > MAX_CHARS) next = next.slice(0, MAX_CHARS);
+    typedText = next;
+    if (buffer.value !== typedText) buffer.value = typedText;
+    resize();
+    scrollIntoView();
+  }
+
+  // How many rows the current typedText occupies, given the current column count.
+  function rowsNeeded() {
+    const blockW = cellCols * gridSize;
+    const nCols = Math.max(1, Math.floor(width / blockW));
+    let col = 0, row = 1;
+    for (let i = 0; i < typedText.length; i++) {
+      const ch = typedText[i];
+      if (ch === "\n") { col = 0; row++; continue; }
+      col++;
+      if (col >= nCols) { col = 0; row++; }
+    }
+    return row;
+  }
+
+  function resize() {
+    computeTopOffset();
+    const rawW = window.innerWidth;
+    const rawH = window.innerHeight;
+    width = Math.floor(rawW / gridSize) * gridSize;
+
+    // Canvas height = at least viewport, grows with content so the page scrolls down.
+    const blockH = cellRows * gridSize;
+    const minH = Math.floor(rawH / gridSize) * gridSize;
+    const contentH = topOffset + rowsNeeded() * blockH + 4 * gridSize;
+    height = Math.max(minH, Math.ceil(contentH / gridSize) * gridSize);
+
+    canvas.width = width;
+    canvas.height = height;
+    // Force the body to be at least as tall as the canvas so the document
+    // actually overflows the viewport and the browser shows a scrollbar.
+    document.body.style.minHeight = height + "px";
+    draw();
+  }
+
+  function gridShape() {
+    const blockW = cellCols * gridSize;
+    const blockH = cellRows * gridSize;
+    const nCols = Math.max(1, Math.floor(width / blockW));
+    return { blockW, blockH, nCols };
+  }
+
+  // Soft cap so runaway paste can't explode the canvas past browser limits.
+  const MAX_CHARS = 10000;
+
+  /* ---------- Save / load via localStorage ---------- */
+  const SAVES_KEY = 'asemic-squares-saves';
+
+  function loadSaves() {
+    try { return JSON.parse(localStorage.getItem(SAVES_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function persistSaves(s) {
+    localStorage.setItem(SAVES_KEY, JSON.stringify(s));
+  }
+
+  function saveCurrent() {
+    if (!typedText.trim()) { showToast("NOTHING TO SAVE"); return; }
+    const def = "NOTE " + new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const name = window.prompt("Name this writing:", def);
+    if (!name) return;
+    const saves = loadSaves();
+    const id = 'w' + Date.now() + Math.random().toString(36).slice(2, 6);
+    saves[id] = {
+      name: name.trim().slice(0, 40),
+      text: typedText,
+      date: new Date().toISOString()
+    };
+    persistSaves(saves);
+    showToast("SAVED");
+  }
+
+  let toastTimer = null;
+  function showToast(msg) {
+    let t = document.getElementById('asemic-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'asemic-toast';
+      t.className = 'toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.remove('show');
+    void t.offsetWidth; // restart fade
+    t.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1400);
+  }
+
+  // Preload from URL ?load=<id> if present (clicked from the homescreen archive).
+  (function preloadFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const loadId = params.get('load');
+    if (!loadId) return;
+    const saves = loadSaves();
+    if (saves[loadId]) {
+      typedText = sanitize(saves[loadId].text || '').slice(0, MAX_CHARS);
+      buffer.value = typedText;
+    }
+  })();
+
+  function drawSpaceGap(x, y) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x, y, cellCols * gridSize, cellRows * gridSize);
+  }
+
+  function drawBrailleCell(ch, startX, startY) {
+    const isCapital = (ch >= 'A' && ch <= 'Z');
+    const pattern = brailleMap[ch.toLowerCase()];
+    if (!pattern) return;
+    for (let row = 0; row < cellRows; row++) {
+      for (let col = 0; col < cellCols; col++) {
+        const idx = row + col * cellRows;
+        const dot = pattern[idx];
+        const x = startX + col * gridSize;
+        const y = startY + row * gridSize;
+        if (dot === 1) {
+          ctx.fillStyle = "#000";
+          ctx.fillRect(x, y, gridSize, gridSize);
+          if (isCapital) {
+            const margin = gridSize * 0.25;
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(x + margin, y + margin, gridSize - 2 * margin, gridSize - 2 * margin);
+          }
+        }
+      }
+    }
+  }
+
+  function drawTranslation() {
+    const { blockW, blockH, nCols } = gridShape();
+    let col = 0, row = 0;
+    for (let i = 0; i < typedText.length; i++) {
+      const ch = typedText[i];
+      if (ch === "\n") { col = 0; row++; continue; }
+      const x = col * blockW;
+      const y = topOffset + row * blockH;
+      if (ch === " ") drawSpaceGap(x, y);
+      else drawBrailleCell(ch, x, y);
+      col++;
+      if (col >= nCols) { col = 0; row++; }
+    }
+  }
+
+  // If the next character would land below the visible area, scroll just enough to reveal it.
+  function scrollIntoView() {
+    const { blockH } = gridShape();
+    const lastRow = rowsNeeded() - 1;
+    const cursorBottom = topOffset + (lastRow + 1) * blockH;
+    const viewportBottom = window.scrollY + window.innerHeight;
+    if (cursorBottom + gridSize > viewportBottom) {
+      window.scrollTo({ top: cursorBottom - window.innerHeight + 6 * gridSize, behavior: 'auto' });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, width, height);
+    drawTranslation();
+  }
+
+  // Textarea edits are the source of truth when the tab is focused.
+  // Native selection/copy/paste in the textarea works without any extra code.
+  buffer.addEventListener("input", () => {
+    const clean = sanitize(buffer.value).slice(0, MAX_CHARS);
+    if (clean !== buffer.value) buffer.value = clean;
+    typedText = clean;
+    resize();
+    scrollIntoView();
+  });
+
+  tabHandle.addEventListener("click", () => {
+    const opening = !tab.classList.contains("open");
+    tab.classList.toggle("open");
+    if (opening) setTimeout(() => buffer.focus(), 200);
+    else canvas.focus();
+  });
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { resize(); canvas.focus(); });
+  } else {
+    resize();
+    canvas.focus();
+  }
+
+  window.addEventListener("resize", resize);
+
+  // Global keys when focus is NOT in the textarea.
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      window.location.href = "squares.html";
+      return;
+    }
+    // CTRL+S works everywhere — block the browser's "Save Page" dialog.
+    if (e.ctrlKey && (e.key === "s" || e.key === "S")) {
+      e.preventDefault();
+      saveCurrent();
+      return;
+    }
+    if (document.activeElement === buffer) return;
+
+    if (e.ctrlKey && (e.key === "x" || e.key === "X")) {
+      e.preventDefault();
+      setTyped("");
+      return;
+    }
+    if (e.ctrlKey && (e.key === "v" || e.key === "V")) {
+      e.preventDefault();
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(text => {
+          setTyped(typedText + sanitize(text));
+        }).catch(() => {});
+      }
+      return;
+    }
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      setTyped(typedText.slice(0, -1));
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      setTyped(typedText + "\n");
+      return;
+    }
+    const k = e.key;
+    const isLetter = k.length === 1 && ((k >= 'a' && k <= 'z') || (k >= 'A' && k <= 'Z'));
+    const isSpace = (k === " ");
+    if (isLetter || isSpace) {
+      e.preventDefault();
+      setTyped(typedText + k);
+    }
+  });
+
+  canvas.addEventListener("click", () => canvas.focus());
+})();
+</script>
+</body>
+</html>
